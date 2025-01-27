@@ -1,101 +1,393 @@
-import Image from "next/image";
+"use client"
+
+import { useState, useEffect } from "react"
+import OpenAI from "openai"
+import { zodResponseFormat } from "openai/helpers/zod";
+import FileInput from "./components/file-input"
+import AnalysisChart from "./components/radar-chart"
+import FeedbackDisplay from "./components/feedback-display"
+import Spinner from "./components/spinner"
+import TargetAudienceSelector from "./components/target-audience-selector"
+import CustomAudienceManager from "./components/custom-audience-manager"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import type { AudienceInfo } from "@/utils/audienceData"
+import { getCustomAudiences } from "@/utils/cookieStorage"
+import { AnalysisResponseSchema } from "./utils/analysisSchema"
+import { createAnalysisPrompt } from "./utils/promptHelpers"
+import UrlInput from "./components/url-input";
+
+type AnalysisResult = {
+  audience: AudienceInfo
+  chartData: { attribute: string; value: number }[]
+  feedback: string[]
+  overallScore: number
+}
+
+const openai = new OpenAI({
+  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true
+})
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [analysisComplete, setAnalysisComplete] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [selectedAudiences, setSelectedAudiences] = useState<AudienceInfo[]>([])
+  const [results, setResults] = useState<AnalysisResult[]>([])
+  const [customAudiences, setCustomAudiences] = useState<string[]>([])
+  const [scrapedImages, setScrapedImages] = useState<string[]>([]);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+  useEffect(() => {
+    const loadedAudiences = getCustomAudiences().map((audience) => audience.description)
+    setCustomAudiences(loadedAudiences)
+  }, [])
+
+  const refreshCustomAudiences = () => {
+    const loadedAudiences = getCustomAudiences().map((audience) => audience.description)
+    setCustomAudiences(loadedAudiences)
+  }
+
+  const analyzeUrl = async (urls: string[]) => {
+    const targetUrl = encodeURIComponent(urls[0]);
+    const res = await fetch(`/api/screenshot?url=${targetUrl}`);
+
+    if (!res.ok) {
+      console.error('Failed to fetch screenshot data.');
+      return [];
+    }
+
+    const data = await res.json();
+    const files = data.screenshots.map((screenshot: string, index: number) => {
+      const base64 = screenshot.split(',')[1] || screenshot;
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      return new File([byteArray], `screenshot-${index}.png`, { type: 'image/png' });
+    });
+
+    // Create object URLs for preview
+    const previewUrls = files.map(file => URL.createObjectURL(file));
+    setScrapedImages(previewUrls);
+    
+    return files;
+  };
+
+  const analyzeScreenshot = async (audience: AudienceInfo, files: File[]) => {
+    const imagePrompts = await Promise.all(
+      files.map(async (file) => {
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.readAsDataURL(file)
+        })
+        return {
+          type: "image_url" as const,
+          image_url: { url: base64 }
+        }
+      })
+    )
+    const prompt = createAnalysisPrompt(audience)
+    console.log(`Audience: ${audience}`)
+    const completion = await openai.beta.chat.completions.parse({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `${prompt.system}`
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `${prompt.user}` },
+            ...imagePrompts
+          ]
+        }
+      ],
+      response_format: zodResponseFormat(AnalysisResponseSchema, "analysis")
+    })
+
+    return AnalysisResponseSchema.parse(
+      JSON.parse(completion.choices[0].message.content || "{}")
+    )
+  }
+
+  const handleUrlSubmit = async (urls: string[]) => {
+    if (selectedAudiences.length === 0) return
+    setIsLoading(true)
+  
+    try {
+      const files = await analyzeUrl(urls)
+      if (!files?.length) {
+        console.error('No screenshots retrieved')
+        return
+      }
+  
+      const results = await Promise.all(
+        selectedAudiences.map(async (audience) => {
+          const analysis = await analyzeScreenshot(audience, files)
+          return {
+            audience,
+            chartData: analysis.chartData,
+            feedback: analysis.feedback,
+            overallScore: analysis.overallScore
+          }
+        })
+      )
+  
+      setResults(results)
+      setAnalysisComplete(true)
+    } catch (error) {
+      console.error("Analysis failed:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSubmit = async (files: FileList) => {
+    if (selectedAudiences.length === 0) return
+    setIsLoading(true)
+
+    try {
+      const fileArray = Array.from(files)
+      const results = await Promise.all(
+        selectedAudiences.map(async (audience) => {
+          const analysis = await analyzeScreenshot(audience, fileArray)
+          return {
+            audience,
+            chartData: analysis.chartData,
+            feedback: analysis.feedback,
+            overallScore: analysis.overallScore
+          }
+        })
+      )
+
+      setResults(results)
+      setAnalysisComplete(true)
+    } catch (error) {
+      console.error("Analysis failed:", error)
+      // Add error handling UI here
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+
+  return (
+    <main className="container mx-auto p-4 space-y-8">
+      <h1 className="text-3xl font-bold">Screenshot Analysis Tool</h1>
+      <Tabs defaultValue="analyze">
+        <TabsList>
+          <TabsTrigger value="analyze">Analyze</TabsTrigger>
+          <TabsTrigger value="manage-audiences">Manage Audiences</TabsTrigger>
+          <TabsTrigger value="scrape url">Scrape URLs</TabsTrigger>
+        </TabsList>
+        <TabsContent value="analyze">
+          <Card>
+            <CardHeader>
+              <CardTitle>Analysis Setup</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold mb-2">1. Select Target Audiences</h2>
+                <TargetAudienceSelector 
+                  selectedAudiences={selectedAudiences}
+                  onSelect={setSelectedAudiences} 
+                />
+                {selectedAudiences.length === 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Please select at least one target audience before analyzing.
+                  </p>
+                )}
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold mb-2">2. Upload Screenshots</h2>
+                <FileInput onSubmit={handleSubmit} isLoading={isLoading} disabled={selectedAudiences.length === 0} />
+              </div>
+            </CardContent>
+          </Card>
+          {isLoading && (
+            <Card className="mt-8">
+              <CardContent className="flex items-center justify-center py-8">
+                <Spinner />
+              </CardContent>
+            </Card>
+          )}
+          {analysisComplete && (
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle>Analysis Results</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Tabs defaultValue={results[0].audience.name}>
+                  <TabsList className="flex flex-wrap mb-4">
+                    {results.map((result) => (
+                      <TabsTrigger key={result.audience.name} value={result.audience.name}>
+                        {result.audience.name}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {results.map((result) => (
+                    <TabsContent key={result.audience.name} value={result.audience.name} className="space-y-8">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div className="w-full">
+                          <AnalysisChart data={result.chartData} />
+                        </div>
+                        <div className="w-full">
+                          <FeedbackDisplay feedback={result.feedback} />
+                        </div>
+                      </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          <Card>
+                          <CardHeader>
+                            <CardTitle>Overall Score for {result.audience.name}</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-4xl font-bold text-center">{result.overallScore} / 10</p>
+                          </CardContent>
+                          </Card>
+                          <Card>
+                          <CardHeader>
+                            <CardTitle>Average Score of All Results</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-4xl font-bold text-center">
+                            {(
+                              results.reduce((sum, r) => sum + r.overallScore, 0) / results.length
+                            ).toFixed(2)} / 10
+                            </p>
+                          </CardContent>
+                          </Card>
+                        </div>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button>View Detailed Analysis</Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl">
+                          <DialogHeader>
+                            <DialogTitle>Detailed Analysis for {result.audience.name}</DialogTitle>
+                            <DialogDescription>Comprehensive breakdown of the analysis results</DialogDescription>
+                          </DialogHeader>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div className="w-full">
+                              <AnalysisChart data={result.chartData} />
+                            </div>
+                            <div className="w-full">
+                              <FeedbackDisplay feedback={result.feedback} />
+                            </div>
+                          </div>
+                          <Card>
+                            <CardHeader>
+                              <CardTitle>Overall Score</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <p className="text-4xl font-bold text-center">{result.overallScore} / 10</p>
+                            </CardContent>
+                          </Card>
+                        </DialogContent>
+                      </Dialog>
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+        <TabsContent value="manage-audiences">
+          <CustomAudienceManager onAudienceChange={refreshCustomAudiences} />
+        </TabsContent>
+        <TabsContent value="scrape url">
+          <Card>
+            <CardHeader>
+              <CardTitle>URL Analysis Setup</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold mb-2">1. Select Target Audiences</h2>
+                <TargetAudienceSelector 
+                  selectedAudiences={selectedAudiences}
+                  onSelect={setSelectedAudiences} 
+                />
+                {selectedAudiences.length === 0 && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Please select at least one target audience before analyzing.
+                  </p>
+                )}
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold mb-2">2. Enter Website URL</h2>
+                <UrlInput 
+                  onSubmit={handleUrlSubmit} 
+                  isLoading={isLoading} 
+                  disabled={selectedAudiences.length === 0} 
+                />
+              </div>
+            </CardContent>
+          </Card>
+          {isLoading && (
+            <Card className="mt-8">
+              <CardContent className="flex items-center justify-center py-8">
+                <Spinner />
+              </CardContent>
+            </Card>
+          )}
+
+          {scrapedImages.length > 0 && (
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle>Scraped Screenshots Preview</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {scrapedImages.map((url, index) => (
+                  <img
+                    key={index}
+                    src={url}
+                    alt={`Scraped preview ${index}`}
+                    className="rounded-lg border shadow-sm"
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {analysisComplete && (
+            <Card className="mt-8">
+              <CardHeader>
+                <CardTitle>Analysis Results</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Duplicate the results display from analyze tab */}
+                <Tabs defaultValue={results[0].audience.name}>
+                  <TabsList className="flex flex-wrap mb-4">
+                    {results.map((result) => (
+                      <TabsTrigger key={result.audience.name} value={result.audience.name}>
+                        {result.audience.name}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                  {results.map((result) => (
+                    <TabsContent key={result.audience.name} value={result.audience.name} className="space-y-8">
+                      {/* ... rest of the results display ... */}
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
+    </main>
   );
 }
+
