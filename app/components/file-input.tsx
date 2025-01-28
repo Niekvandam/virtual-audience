@@ -54,7 +54,9 @@ export default function FileInput({
     setPreviews((prev) => prev.filter((_, i) => i !== index))
     if (files) {
       const newFiles = Array.from(files).filter((_, i) => i !== index)
-      setFiles(new FileList(newFiles))
+      const fileList = new DataTransfer()
+      newFiles.forEach((file) => fileList.items.add(file))
+      setFiles(fileList.files)
     }
   }
 

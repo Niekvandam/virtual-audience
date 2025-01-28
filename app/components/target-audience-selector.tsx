@@ -3,7 +3,7 @@ import { useState } from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "cmdk";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import { getAllAudiences, type AudienceInfo } from "@/utils/audienceData"
@@ -44,28 +44,28 @@ const TargetAudienceSelector = ({ selectedAudiences, onSelect }: TargetAudienceS
             <CommandList>
               <CommandEmpty>No audience found.</CommandEmpty>
               <CommandGroup>
-              {Object.values(allAudiences).map((audience) => (
-                <CommandItem 
-                  key={audience.name} 
-                  value={audience.description} 
-                  onSelect={() => handleSelect(audience.name)}
-                >
-                  <Check
-                    className={cn(
-                      "mr-2 h-4 w-4",
-                      selectedAudiences.some((selected) => selected.name === audience.name)
-                        ? "opacity-100"
-                        : "opacity-0",
-                    )}
-                  />
-                  {audience.description} {/* Changed from audience.name */}
-                </CommandItem>
-              ))}
+                {Object.values(allAudiences).map((audience) => (
+                  <CommandItem
+                    key={audience.name}
+                    value={audience.description}
+                    onSelect={() => handleSelect(audience.name)}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        selectedAudiences.some((selected) => selected.name === audience.name)
+                          ? "opacity-100"
+                          : "opacity-0",
+                      )}
+                    />
+                    {audience.description} {/* Changed from audience.name */}
+                  </CommandItem>
+                ))}
               </CommandGroup>
             </CommandList>
           </Command>
         </PopoverContent>
-        </Popover>
+      </Popover>
       <div className="flex flex-wrap gap-2">
         {selectedAudiences.map((audience) => (
           <Badge key={audience.name} variant="secondary">

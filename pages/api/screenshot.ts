@@ -25,14 +25,17 @@ export default async function handler(
     await page.goto(url, { waitUntil: 'networkidle2' });
 
     const bodyHandle = await page.$('body');
-    const { height } = await bodyHandle.boundingBox();
-    await bodyHandle.dispose();
-    const viewportHeight = page.viewport().height;
+    const height = bodyHandle ? await bodyHandle.boundingBox() : null;
+    
+    if (bodyHandle) {
+      await bodyHandle.dispose();
+    }
+    const viewportHeight = page.viewport()?.height ?? 0;
     let currentPosition = 0;
     const screenshots = [];
     let screenshotCount = 0;
 
-    while (currentPosition < height) {
+    while (height && currentPosition < height.height) {
       await page.evaluate((scrollTo) => {
         window.scrollTo(0, scrollTo);
       }, currentPosition);

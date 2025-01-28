@@ -7,7 +7,6 @@ import FileInput from "./components/file-input"
 import AnalysisChart from "./components/radar-chart"
 import FeedbackDisplay from "./components/feedback-display"
 import Spinner from "./components/spinner"
-import TargetAudienceSelector from "./components/target-audience-selector"
 import CustomAudienceManager from "./components/custom-audience-manager"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -25,6 +24,7 @@ import { getCustomAudiences } from "@/utils/cookieStorage"
 import { AnalysisResponseSchema } from "./utils/analysisSchema"
 import { createAnalysisPrompt } from "./utils/promptHelpers"
 import UrlInput from "./components/url-input";
+import TargetAudienceSelector from "./components/target-audience-selector";
 
 type AnalysisResult = {
   audience: AudienceInfo
@@ -43,7 +43,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [selectedAudiences, setSelectedAudiences] = useState<AudienceInfo[]>([])
   const [results, setResults] = useState<AnalysisResult[]>([])
-  const [customAudiences, setCustomAudiences] = useState<string[]>([])
+  const [_customAudiences, setCustomAudiences] = useState<string[]>([])
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
   const [screenshotProgress, setScreenshotProgress] = useState(0);
 
@@ -55,6 +55,7 @@ export default function Home() {
   const refreshCustomAudiences = () => {
     const loadedAudiences = getCustomAudiences().map((audience) => audience.description)
     setCustomAudiences(loadedAudiences)
+    console.log(_customAudiences)
   }
 
   // Update analyzeUrl function
@@ -63,9 +64,7 @@ export default function Home() {
     
     return new Promise<File[]>((resolve, reject) => {
       const eventSource = new EventSource(`/api/screenshot?url=${targetUrl}`);
-      console.log("we got here")
-      eventSource.addEventListener('progress', (event) => {
-        console.log("Progress event:", event.data);
+      eventSource.addEventListener('progress', (event: MessageEvent) => {
         const data = JSON.parse(event.data);
         setScreenshotProgress(data.count);
       });
@@ -84,13 +83,13 @@ export default function Home() {
         return new File([byteArray], `screenshot-${index}.png`, { type: 'image/png' });
       });
 
-      const previewUrls = files.map(file => URL.createObjectURL(file));
+      const previewUrls = files.map((file: Blob | MediaSource) => URL.createObjectURL(file));
       setScrapedImages(previewUrls);
       eventSource.close();
       resolve(files);
       });
 
-      eventSource.addEventListener('error', (event) => {
+      eventSource.addEventListener('error', (event: MessageEvent) => {
       const data = JSON.parse(event.data);
       eventSource.close();
       reject(new Error(data.error));
