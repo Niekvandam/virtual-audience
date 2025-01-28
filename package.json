@@ -25,6 +25,7 @@
     "puppeteer": "^24.1.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-responsive-carousel": "^3.2.23",
     "recharts": "^2.15.0",
     "shadcn": "^2.1.8",
     "tailwind-merge": "^2.6.0",

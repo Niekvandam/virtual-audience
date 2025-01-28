@@ -45,6 +45,7 @@ export default function Home() {
   const [results, setResults] = useState<AnalysisResult[]>([])
   const [customAudiences, setCustomAudiences] = useState<string[]>([])
   const [scrapedImages, setScrapedImages] = useState<string[]>([]);
+  const [screenshotProgress, setScreenshotProgress] = useState(0);
 
   useEffect(() => {
     const loadedAudiences = getCustomAudiences().map((audience) => audience.description)
@@ -56,33 +57,52 @@ export default function Home() {
     setCustomAudiences(loadedAudiences)
   }
 
+  // Update analyzeUrl function
   const analyzeUrl = async (urls: string[]) => {
     const targetUrl = encodeURIComponent(urls[0]);
-    const res = await fetch(`/api/screenshot?url=${targetUrl}`);
-
-    if (!res.ok) {
-      console.error('Failed to fetch screenshot data.');
-      return [];
-    }
-
-    const data = await res.json();
-    const files = data.screenshots.map((screenshot: string, index: number) => {
-      const base64 = screenshot.split(',')[1] || screenshot;
-      const byteCharacters = atob(base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      return new File([byteArray], `screenshot-${index}.png`, { type: 'image/png' });
-    });
-
-    // Create object URLs for preview
-    const previewUrls = files.map(file => URL.createObjectURL(file));
-    setScrapedImages(previewUrls);
     
-    return files;
-  };
+    return new Promise<File[]>((resolve, reject) => {
+      const eventSource = new EventSource(`/api/screenshot?url=${targetUrl}`);
+      console.log("we got here")
+      eventSource.addEventListener('progress', (event) => {
+        console.log("Progress event:", event.data);
+        const data = JSON.parse(event.data);
+        setScreenshotProgress(data.count);
+      });
+      eventSource.addEventListener('complete', (event) => {
+      const data = JSON.parse(event.data);
+      const screenshots = data.screenshots;
+
+      const files = screenshots.map((screenshot: string, index: number) => {
+        const base64 = screenshot.split(',')[1] || screenshot;
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        return new File([byteArray], `screenshot-${index}.png`, { type: 'image/png' });
+      });
+
+      const previewUrls = files.map(file => URL.createObjectURL(file));
+      setScrapedImages(previewUrls);
+      eventSource.close();
+      resolve(files);
+      });
+
+      eventSource.addEventListener('error', (event) => {
+      const data = JSON.parse(event.data);
+      eventSource.close();
+      reject(new Error(data.error));
+      });
+
+      eventSource.onerror = (error) => {
+      eventSource.close();
+      reject(error);
+      };
+    });
+  }
+
 
   const analyzeScreenshot = async (audience: AudienceInfo, files: File[]) => {
     const imagePrompts = await Promise.all(
@@ -123,15 +143,17 @@ export default function Home() {
     )
   }
 
+  // Update handleUrlSubmit to reset progress
   const handleUrlSubmit = async (urls: string[]) => {
-    if (selectedAudiences.length === 0) return
-    setIsLoading(true)
-  
+    if (selectedAudiences.length === 0) return;
+    setIsLoading(true);
+    setScreenshotProgress(0);
+
     try {
-      const files = await analyzeUrl(urls)
+      const files = await analyzeUrl(urls);
       if (!files?.length) {
-        console.error('No screenshots retrieved')
-        return
+        console.error('No screenshots retrieved');
+        return;
       }
   
       const results = await Promise.all(
@@ -149,11 +171,11 @@ export default function Home() {
       setResults(results)
       setAnalysisComplete(true)
     } catch (error) {
-      console.error("Analysis failed:", error)
+      console.error("Analysis failed:", error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const handleSubmit = async (files: FileList) => {
     if (selectedAudiences.length === 0) return
@@ -219,8 +241,13 @@ export default function Home() {
           </Card>
           {isLoading && (
             <Card className="mt-8">
-              <CardContent className="flex items-center justify-center py-8">
+              <CardContent className="flex flex-col items-center justify-center py-8 space-y-4">
                 <Spinner />
+                {screenshotProgress > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Made {screenshotProgress} screenshots...
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -337,12 +364,16 @@ export default function Home() {
           </Card>
           {isLoading && (
             <Card className="mt-8">
-              <CardContent className="flex items-center justify-center py-8">
+              <CardContent className="flex flex-col items-center justify-center py-8 space-y-4">
                 <Spinner />
+                {screenshotProgress > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Made {screenshotProgress} screenshots...
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
-
           {scrapedImages.length > 0 && (
             <Card className="mt-8">
               <CardHeader>
@@ -378,7 +409,63 @@ export default function Home() {
                   </TabsList>
                   {results.map((result) => (
                     <TabsContent key={result.audience.name} value={result.audience.name} className="space-y-8">
-                      {/* ... rest of the results display ... */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div className="w-full">
+                          <AnalysisChart data={result.chartData} />
+                        </div>
+                        <div className="w-full">
+                          <FeedbackDisplay feedback={result.feedback} />
+                        </div>
+                      </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          <Card>
+                          <CardHeader>
+                            <CardTitle>Overall Score for {result.audience.name}</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-4xl font-bold text-center">{result.overallScore} / 10</p>
+                          </CardContent>
+                          </Card>
+                          <Card>
+                          <CardHeader>
+                            <CardTitle>Average Score of All Results</CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-4xl font-bold text-center">
+                            {(
+                              results.reduce((sum, r) => sum + r.overallScore, 0) / results.length
+                            ).toFixed(2)} / 10
+                            </p>
+                          </CardContent>
+                          </Card>
+                        </div>
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button>View Detailed Analysis</Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-4xl">
+                          <DialogHeader>
+                            <DialogTitle>Detailed Analysis for {result.audience.name}</DialogTitle>
+                            <DialogDescription>Comprehensive breakdown of the analysis results</DialogDescription>
+                          </DialogHeader>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div className="w-full">
+                              <AnalysisChart data={result.chartData} />
+                            </div>
+                            <div className="w-full">
+                              <FeedbackDisplay feedback={result.feedback} />
+                            </div>
+                          </div>
+                          <Card>
+                            <CardHeader>
+                              <CardTitle>Overall Score</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                              <p className="text-4xl font-bold text-center">{result.overallScore} / 10</p>
+                            </CardContent>
+                          </Card>
+                        </DialogContent>
+                      </Dialog>
                     </TabsContent>
                   ))}
                 </Tabs>
